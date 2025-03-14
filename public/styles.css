@@ -181,24 +181,42 @@ body {
 }
 
 .question-item {
-  background-color: var(--surface);
+  background-color: #130529;
   border-radius: 1rem;
   padding: 1.5rem;
   animation: slideIn 0.5s ease-out;
+  color: var(--text);
 }
 
 .question-item h3 {
   margin-bottom: 1rem;
   color: var(--primary);
+  font-size: 1.2rem;
 }
 
 .question-item p {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.6;
 }
 
 .question-item .answer {
   color: var(--success);
   font-weight: 500;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.question-item .reason {
+  color: var(--text-secondary);
+  font-style: italic;
+  margin-top: 0.5rem;
+}
+
+.question-item .relevant-pages {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
 }
 
 .question-item .answer.correct {
@@ -269,7 +287,7 @@ body {
   padding: 15px;
   border: 1px solid #dee2e6;
   border-radius: 8px;
-  background-color: white;
+  background-color: #130529;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
@@ -303,26 +321,82 @@ body {
   position: fixed;
   bottom: 2rem;
   right: 2rem;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  border-radius: 50%;
-  width: 48px;
-  height: 48px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  gap: 0.5rem;
   z-index: 1000;
 }
 
+.download-text-btn {
+  background-color: var(--primary);
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+}
+
 .download-text-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background-color: var(--primary-dark);
   transform: translateY(-2px);
 }
 
-.download-text-btn svg {
-  color: var(--text);
+.download-text-btn img {
   width: 24px;
   height: 24px;
+  filter: brightness(0) invert(1);
+}
+
+.download-text-btn.formatted-questions {
+  background-color: var(--success);
+}
+
+.download-text-btn.formatted-questions:hover {
+  background-color: #15803d;
+}
+
+.download-text-btn[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  pointer-events: none;
+  margin-bottom: 0.5rem;
+}
+
+.search-container {
+  margin-bottom: 2rem;
+  animation: fadeIn 0.5s ease-out;
+}
+
+#searchInput {
+  width: 100%;
+  padding: 1rem;
+  background-color: var(--surface);
+  border: 2px solid var(--text-secondary);
+  border-radius: 0.75rem;
+  color: var(--text);
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+#searchInput:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+#searchInput::placeholder {
+  color: var(--text-secondary);
 }

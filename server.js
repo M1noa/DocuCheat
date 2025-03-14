@@ -3,7 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const multer = require('multer');
 const path = require('path');
-const debug = require('debug')('docucheat:server');
+const debug = require('debug')('Docu:server');
 const cors = require('cors');
 const { processDocument } = require('./utils/documentProcessor');
 

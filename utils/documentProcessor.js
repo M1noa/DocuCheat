@@ -34,7 +34,7 @@ class DocumentProcessor {
   async processDocument(data) {
     try {
       debug('Starting document processing with file:', data.filePath);
-      this.socket.emit('status', { message: 'Converting PDF to text...', progress: 10 });
+      this.socket.emit('status', { message: 'Converting PDF to text...', progress: 5 });
       this.socket.emit('log', { type: 'info', message: 'Starting document processing' });
       
       const pdfText = await this.convertPdfToText(data.filePath);
@@ -42,13 +42,13 @@ class DocumentProcessor {
       this.emitStats();
       debug('PDF converted to text');
       
-      this.socket.emit('status', { message: 'Extracting document sections...', progress: 30 });
+      this.socket.emit('status', { message: 'Extracting document sections...', progress: 15 });
       await this.extractDocumentSections(pdfText);
       
-      this.socket.emit('status', { message: 'Processing exam questions...', progress: 50 });
+      this.socket.emit('status', { message: 'Processing exam questions...', progress: 30 });
       await this.extractExamQuestions();
       
-      this.socket.emit('status', { message: 'Analyzing questions with AI...', progress: 70 });
+      this.socket.emit('status', { message: 'Analyzing questions with AI...', progress: 50 });
       await this.processQuestionsWithAI();
       
       this.socket.emit('status', { message: 'Processing complete', progress: 100 });
@@ -126,6 +126,11 @@ class DocumentProcessor {
     // Extract other sections
     this.tableOfContents = pages.find(page => page.includes('Table of Contents'));
     if (this.tableOfContents) {
+      // Limit table of contents to 10000 characters
+      if (this.tableOfContents.length > 10000) {
+        this.tableOfContents = this.tableOfContents.substring(0, 10000);
+        debug('Table of contents truncated to 10000 characters');
+      }
       this.stats.tocEntries = this.tableOfContents.split('\n')
         .filter(line => line.match(/^\s*\d+\.\s+/)).length;
     }
@@ -177,6 +182,15 @@ class DocumentProcessor {
           return;
         }
 
+        // Check if any choice starts with 'Incorrect' or 'CORRECT'
+        const hasInvalidChoices = choicesText.split('\n')
+          .some(choice => /^\s*[A-Z]\s*\.\s*(Incorrect|CORRECT)\b/.test(choice));
+
+        if (hasInvalidChoices) {
+          this.stats.invalidQuestions++;
+          return;
+        }
+
         const questionData = {
           number: parseInt(number),
           text: questionText.trim().replace(/\s+/g, ' '),
@@ -192,8 +206,8 @@ class DocumentProcessor {
           ));
         }
 
-        // Validate question has at least 2 choices
-        if (questionData.choices.length >= 2) {
+        // Validate question has at least 3 choices
+        if (questionData.choices.length >= 3) {
           this.stats.validQuestions++;
           // Format question in the desired format
           const formattedQuestion = `${questionData.number}. ${questionData.text}\n${questionData.choices.join('\n')}\n\n----------\n\n`;
@@ -205,10 +219,6 @@ class DocumentProcessor {
           });
         } else {
           this.stats.invalidQuestions++;
-          this.socket.emit('log', { 
-            type: 'error', 
-            message: `Insufficient choices found for question ${number}`
-          });
         }
       } catch (error) {
         this.stats.invalidQuestions++;
@@ -225,92 +235,89 @@ class DocumentProcessor {
   }
 
   async processQuestionsWithAI() {
-    debug('Processing questions with AI');
-    if (!this.examQuestions || this.examQuestions.length === 0) {
-      throw new Error('No questions to process');
-    }
-
-    // Emit the raw questions for debugging
-    const questionsText = this.examQuestions.map(q => q.text).join('\n\n');
-    this.socket.emit('text-file-ready', { filename: 'extracted_questions.txt' });
-    this.socket.emit('text-content', questionsText);
-
-    for (let i = 0; i < this.examQuestions.length; i += 10) {
-      const batch = this.examQuestions.slice(i, i + 10);
-      try {
-        for (const { number, text, choices } of batch) {
-          const relevantPages = await this.getRelevantPages({ text, choices });
-          const pageContents = await this.getPageContents(relevantPages);
-
-          let aiResponse = null;
+    try {
+      debug('Starting AI processing');
+      const totalQuestions = this.examQuestions.length;
+      const progressIncrement = 100 / totalQuestions;
+      const batchSize = 5; // Process 5 questions in parallel
+      
+      for (let i = 0; i < totalQuestions; i += batchSize) {
+        const batch = this.examQuestions.slice(i, i + batchSize);
+        const batchPromises = batch.map(async (question, batchIndex) => {
+          const currentQuestion = i + batchIndex + 1;
           let retryCount = 0;
-          const maxRetries = 1;
-
-          while (retryCount <= maxRetries) {
+          
+          while (retryCount <= 1) { // One retry attempt
             try {
-              const answerResponse = await fetch(AI_API_URL, {
+              const response = await fetch(AI_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   messages: [{
+                    role: 'system',
+                    content: 'Analyze the exam question and provide the answer in this format:\nAnswer: [letter] - [answer text]\n\nReason: [one brief sentence explanation]'
+                  }, {
                     role: 'user',
-                    content: `Answer this multiple choice question. Format your response as:\nAnswer: [letter]\n\nReason: [explanation]\n\nQuestion:\n${text}\n${choices.join('\n')}\n\nRelevant content:\n${pageContents}`
+                    content: question
                   }]
                 })
               });
 
-              const answerData = await answerResponse.json();
-              if (!answerData.choices?.[0]?.message?.content) {
-                throw new Error('Invalid AI response format');
+              if (!response.ok) {
+                throw new Error(`AI request failed with status ${response.status}`);
               }
 
-              aiResponse = answerData.choices[0].message.content;
+              const data = await response.json();
+              this.stats.processedQuestions++;
               
-              // Check if the response indicates an invalid question
-              if (aiResponse.includes('Invalid Question Provided')) {
-                debug(`Question ${number} marked as invalid by AI`);
-                this.socket.emit('question-error', {
-                  question: `${number}. ${text}\n${choices.join('\n')}`,
-                  error: 'Invalid question format',
-                  rawResponse: aiResponse,
-                  aiResponse: answerData.choices[0].message // Include full AI response
-                });
-                break;
-              }
-
-              // Emit both processed question and raw AI response for debugging
+              const progress = Math.min(Math.round((this.stats.processedQuestions / totalQuestions) * 100), 100);
+              this.socket.emit('status', { 
+                message: `Processing question ${this.stats.processedQuestions} of ${totalQuestions}...`, 
+                progress: progress 
+              });
+              
               this.socket.emit('question-processed', {
-                question: `${number}. ${text}\n${choices.join('\n')}`,
-                answer: aiResponse,
-                pageNumbers: relevantPages,
-                rawResponse: answerData.choices[0].message, // Include full AI response
-                aiResponseData: answerData // Include complete AI response data
+                question: question,
+                answer: data.choices[0].message.content,
+                pageNumbers: [],
+                rawResponse: data,
+                aiResponseData: { phase: 2 },
+                aiResponse: data.choices[0].message.content
               });
 
-              this.stats.processedQuestions++;
               this.emitStats();
-              break;
+              break; // Success, exit retry loop
             } catch (error) {
               retryCount++;
-              if (retryCount > maxRetries) {
-                throw error;
+              if (retryCount > 1) { // If all retries failed
+                console.error(`Failed to process question ${currentQuestion} after retry:`, error);
+                this.stats.failedQuestions++;
+                this.socket.emit('question-error', {
+                  question: question,
+                  error: error.message,
+                  statusCode: error.status || 500
+                });
+                this.emitStats();
+              } else {
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
               }
-              debug(`Retrying question ${number} after error: ${error.message}`);
-              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
             }
           }
-        }
-      } catch (error) {
-        debug(`Error processing batch starting at question ${i + 1}:`, error);
-        this.stats.failedQuestions += batch.length;
-        this.socket.emit('log', {
-          type: 'error',
-          message: `Failed to process questions ${i + 1}-${Math.min(i + 10, this.examQuestions.length)}: ${error.message}`
         });
+
+        await Promise.all(batchPromises);
+        await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between batches
       }
+
+      this.socket.emit('status', { message: 'Processing complete', progress: 100 });
+      debug('Question processing completed');
+    } catch (error) {
+      debug('Error in AI processing:', error);
+      this.socket.emit('error', { message: error.message });
+      throw error;
     }
   }
-  
+
   // Helper method to parse AI response into individual question responses
   parseAIResponse(aiResponse, questions) {
     const results = [];
@@ -351,24 +358,30 @@ class DocumentProcessor {
   }
 
   async getPageContents(pageNumbers) {
-    if (!pageNumbers || pageNumbers.length === 0) {
+    if (!pageNumbers || !Array.isArray(pageNumbers) || pageNumbers.length === 0) {
       return '';
     }
 
     try {
-      const dataBuffer = fs.readFileSync(this.filePath);
-      const pdfData = await pdfParse(dataBuffer);
-      const pages = pdfData.text.split(/\f/);
-      
-      return pageNumbers
-        .map(num => {
-          const pageIndex = parseInt(num) - 1;
-          return pageIndex >= 0 && pageIndex < pages.length ? pages[pageIndex].trim() : '';
-        })
-        .filter(Boolean)
-        .join('\n\n');
+      // Extract page numbers from the table of contents
+      const tocPagePattern = /^\s*(\d+)\s*\.\s*([^\n]+)/gm;
+      const tocPages = new Map();
+      let match;
+
+      while ((match = tocPagePattern.exec(this.tableOfContents)) !== null) {
+        const [_, pageNum, content] = match;
+        tocPages.set(pageNum.trim(), content.trim());
+      }
+
+      // Get content for each page number
+      const pageContents = pageNumbers.map(pageNum => {
+        const pageContent = tocPages.get(pageNum.toString().trim());
+        return pageContent ? `Page ${pageNum}: ${pageContent}` : '';
+      }).filter(Boolean);
+
+      return pageContents.join('\n');
     } catch (error) {
-      debug('Error getting page contents:', error);
+      console.error('Error getting page contents:', error);
       return '';
     }
   }
