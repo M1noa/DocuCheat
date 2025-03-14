@@ -150,46 +150,41 @@ socket.on('log', ({ type, message, data }) => {
 });
 
 socket.on('text-file-ready', (data) => {
-  const downloadButton = document.createElement('button');
-  downloadButton.className = 'download-text-btn';
-  downloadButton.innerHTML = '<img src="download-icon.svg" alt="Download" />';
-  
-  // Store text content in memory when received
-  socket.once('text-content', (textContent) => {
-    const blob = new Blob([textContent], { type: 'text/plain' });
-    const objectUrl = URL.createObjectURL(blob);
+  // Only create the button if it doesn't exist
+  if (!document.querySelector('.download-text-btn')) {
+    const downloadButton = document.createElement('button');
+    downloadButton.className = 'download-text-btn';
+    downloadButton.innerHTML = '<img src="download-icon.svg" alt="Download Raw Text" title="Download Raw Text"/>';
+    downloadButton.title = 'Download raw text version';
     
-    downloadButton.onclick = () => {
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = data.filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    };
-  });
-  
-  document.body.appendChild(downloadButton);
+    // Store text content in memory when received
+    socket.once('text-content', (textContent) => {
+      downloadButton.onclick = () => {
+        downloadFile(textContent, data.filename, 'text/plain');
+      };
+    });
+    
+    const downloadContainer = document.querySelector('.download-container') || addDownloadButtons();
+    downloadContainer.appendChild(downloadButton);
+  }
 });
 
 socket.on('formatted-questions-ready', (data) => {
-  const downloadButton = document.createElement('button');
-  downloadButton.className = 'download-text-btn formatted-questions';
-  downloadButton.innerHTML = '<img src="download-icon.svg" alt="Download Formatted" />';
-  
-  const blob = new Blob([data.content], { type: 'text/plain' });
-  const objectUrl = URL.createObjectURL(blob);
-  
-  downloadButton.onclick = () => {
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = data.filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-  
-  document.body.appendChild(downloadButton);
+  // Skip if button already exists
+  if (!document.querySelector('.download-questions-btn')) {
+    const downloadButton = document.createElement('button');
+    downloadButton.className = 'download-questions-btn';
+    downloadButton.innerHTML = '<img src="download-icon.svg" alt="Download Questions" title="Download Questions"/>';
+    downloadButton.title = 'Download formatted questions';
+    downloadButton.style.backgroundColor = 'var(--primary-light)';
+    
+    downloadButton.onclick = () => {
+      downloadFile(data.content, data.filename, 'text/plain');
+    };
+    
+    const downloadContainer = document.querySelector('.download-container') || addDownloadButtons();
+    downloadContainer.appendChild(downloadButton);
+  }
 });
 
 socket.on('question-processed', ({ question, answer, pageNumbers, rawResponse, aiResponseData, aiResponse }) => {
@@ -197,6 +192,13 @@ socket.on('question-processed', ({ question, answer, pageNumbers, rawResponse, a
   console.log('AI Response Data:', aiResponseData);
   console.log('Full AI Response:', aiResponse);
   addQuestionResult(question, answer, pageNumbers, rawResponse, aiResponseData);
+  
+  // Update progress based on processed questions
+  const totalQuestions = parseInt(statsElements.totalQuestions.textContent);
+  const processedQuestions = parseInt(statsElements.processedQuestions.textContent);
+  const progress = Math.min(Math.round((processedQuestions / totalQuestions) * 100), 100);
+  updateProgress(progress, `Processed ${processedQuestions} of ${totalQuestions} questions...`);
+});
   
   // Format questions for clean text download
   const formattedContent = processedQuestions.map(q => {
@@ -208,7 +210,6 @@ socket.on('question-processed', ({ question, answer, pageNumbers, rawResponse, a
     content: formattedContent,
     filename: 'formatted_questions.txt'
   });
-});
 
 socket.on('question-error', ({ question, error, rawResponse, aiResponse, statusCode, headers }) => {
   console.error('Question processing error:', { question, error });
@@ -406,45 +407,24 @@ function addQuestionResult(question, answer, pageNumbers, rawResponse, aiRespons
 }
 
 // Add download buttons for text and JSON formats
-function addDownloadButtons() {
-    const downloadContainer = document.createElement('div');
-    downloadContainer.className = 'download-container';
-    downloadContainer.style.position = 'fixed';
-    downloadContainer.style.bottom = '2rem';
-    downloadContainer.style.right = '2rem';
-    downloadContainer.style.display = 'flex';
-    downloadContainer.style.gap = '1rem';
-    document.body.appendChild(downloadContainer);
-
-    // Text download button
-    const textButton = document.createElement('button');
-    textButton.className = 'download-text-btn';
-    textButton.innerHTML = '<img src="download-icon.svg" alt="Download Text" title="Download as Text"/>';
-    textButton.title = 'Download exam answers as text format';
-    textButton.onclick = downloadAsText;
-
-    // JSON download button
-    const jsonButton = document.createElement('button');
-    jsonButton.className = 'download-text-btn';
-    jsonButton.innerHTML = '<img src="download-icon.svg" alt="Download JSON" title="Download as JSON"/>';
-    jsonButton.style.backgroundColor = 'var(--primary-dark)';
-    jsonButton.title = 'Download exam answers as JSON format';
-    jsonButton.onclick = downloadAsJson;
-
-    downloadContainer.appendChild(textButton);
-    downloadContainer.appendChild(jsonButton);
-}
-
 function downloadAsText() {
     const questions = Array.from(document.querySelectorAll('.question-item'));
-    let content = 'Exam Questions and Answers\n\n';
+    let content = '';
 
     questions.forEach(item => {
-        const question = item.querySelector('.question').textContent;
-        const answer = item.querySelector('.answer')?.textContent || '';
-        const reason = item.querySelector('.reason')?.textContent || '';
+        const question = item.querySelector('.question').textContent.trim();
+        const answer = item.querySelector('.answer')?.textContent.trim() || '';
+        const reason = item.querySelector('.reason')?.textContent.trim() || '';
 
-        content += `${question}\n\n${answer}\n${reason}\n\n`;
+        content += `Q: ${question.replace(/^\d+\.\s*/, '')}
+`;
+        content += `A: ${answer}
+`;
+        if (reason) {
+            content += `Reason: ${reason}
+`;
+        }
+        content += '\n-------------------\n\n';
     });
 
     downloadFile(content, 'exam_answers.txt', 'text/plain');
@@ -453,9 +433,9 @@ function downloadAsText() {
 function downloadAsJson() {
     const questions = Array.from(document.querySelectorAll('.question-item'));
     const data = questions.map(item => ({
-        question: item.querySelector('.question').textContent,
-        answer: item.querySelector('.answer')?.textContent || '',
-        reason: item.querySelector('.reason')?.textContent || ''
+        question: item.querySelector('.question').textContent.trim().replace(/^\d+\.\s*/, ''),
+        answer: item.querySelector('.answer')?.textContent.trim() || '',
+        reason: item.querySelector('.reason')?.textContent.trim() || ''
     }));
 
     downloadFile(JSON.stringify(data, null, 2), 'exam_answers.json', 'application/json');
@@ -474,6 +454,35 @@ function downloadFile(content, filename, type) {
 }
 
 // Initialize download buttons
+function addDownloadButtons() {
+    const downloadContainer = document.createElement('div');
+    downloadContainer.className = 'download-container';
+    downloadContainer.style.position = 'fixed';
+    downloadContainer.style.bottom = '2rem';
+    downloadContainer.style.right = '2rem';
+    downloadContainer.style.display = 'flex';
+    downloadContainer.style.gap = '1rem';
+    document.body.appendChild(downloadContainer);
+
+    // Text download button
+    const textButton = document.createElement('button');
+    textButton.className = 'download-answertext-btn';
+    textButton.innerHTML = '<img src="download-icon.svg" alt="Download Text" title="Download as Text"/>';
+    textButton.title = 'Download exam answers as text format';
+    textButton.onclick = downloadAsText;
+
+    // JSON download button
+    const jsonButton = document.createElement('button');
+    jsonButton.className = 'download-answerjson-btn';
+    jsonButton.innerHTML = '<img src="download-icon.svg" alt="Download JSON" title="Download as JSON"/>';
+    jsonButton.style.backgroundColor = 'var(--primary-dark)';
+    jsonButton.title = 'Download exam answers as JSON format';
+    jsonButton.onclick = downloadAsJson;
+
+    downloadContainer.appendChild(textButton);
+    downloadContainer.appendChild(jsonButton);
+}
+
 addDownloadButtons();
 
 function showError(message) {

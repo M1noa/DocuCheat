@@ -31,6 +31,41 @@ class DocumentProcessor {
     this.socket.emit('stats', this.stats);
   }
 
+  async processBatch(items, processFunction, progressStart, progressEnd) {
+    const batchCount = Math.ceil(items.length / BATCH_SIZE);
+    const progressPerBatch = (progressEnd - progressStart) / items.length;
+
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
+      const batchPromises = batch.map(async (item, batchIndex) => {
+        const currentIndex = i + batchIndex;
+        let retryCount = 0;
+
+        while (retryCount <= 1) {
+          try {
+            await processFunction(item, currentIndex);
+            const progress = progressStart + (currentIndex + 1) * progressPerBatch;
+            this.socket.emit('status', {
+              message: `Processing item ${currentIndex + 1} of ${items.length}...`,
+              progress: Math.min(Math.round(progress), progressEnd)
+            });
+            break;
+          } catch (error) {
+            retryCount++;
+            if (retryCount > 1) {
+              console.error(`Failed to process item ${currentIndex + 1} after retry:`, error);
+              throw error;
+            }
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          }
+        }
+      });
+
+      await Promise.all(batchPromises);
+      await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between batches
+    }
+  }
+
   async processDocument(data) {
     try {
       debug('Starting document processing with file:', data.filePath);
@@ -236,78 +271,51 @@ class DocumentProcessor {
 
   async processQuestionsWithAI() {
     try {
-      debug('Starting AI processing');
-      const totalQuestions = this.examQuestions.length;
-      const progressIncrement = 100 / totalQuestions;
-      const batchSize = 5; // Process 5 questions in parallel
+            debug('Starting AI processing');
+       const totalQuestions = this.examQuestions.length;
       
-      for (let i = 0; i < totalQuestions; i += batchSize) {
-        const batch = this.examQuestions.slice(i, i + batchSize);
-        const batchPromises = batch.map(async (question, batchIndex) => {
-          const currentQuestion = i + batchIndex + 1;
-          let retryCount = 0;
-          
-          while (retryCount <= 1) { // One retry attempt
-            try {
-              const response = await fetch(AI_API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  messages: [{
-                    role: 'system',
-                    content: 'Analyze the exam question and provide the answer in this format:\nAnswer: [letter] - [answer text]\n\nReason: [one brief sentence explanation]'
-                  }, {
-                    role: 'user',
-                    content: question
-                  }]
-                })
-              });
-
-              if (!response.ok) {
-                throw new Error(`AI request failed with status ${response.status}`);
-              }
-
-              const data = await response.json();
-              this.stats.processedQuestions++;
-              
-              const progress = Math.min(Math.round((this.stats.processedQuestions / totalQuestions) * 100), 100);
-              this.socket.emit('status', { 
-                message: `Processing question ${this.stats.processedQuestions} of ${totalQuestions}...`, 
-                progress: progress 
-              });
-              
-              this.socket.emit('question-processed', {
-                question: question,
-                answer: data.choices[0].message.content,
-                pageNumbers: [],
-                rawResponse: data,
-                aiResponseData: { phase: 2 },
-                aiResponse: data.choices[0].message.content
-              });
-
-              this.emitStats();
-              break; // Success, exit retry loop
-            } catch (error) {
-              retryCount++;
-              if (retryCount > 1) { // If all retries failed
-                console.error(`Failed to process question ${currentQuestion} after retry:`, error);
-                this.stats.failedQuestions++;
-                this.socket.emit('question-error', {
-                  question: question,
-                  error: error.message,
-                  statusCode: error.status || 500
-                });
-                this.emitStats();
-              } else {
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-              }
-            }
-          }
+      const processQuestion = async (question, index) => {
+        const response = await fetch(AI_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{
+              role: 'system',
+              content: 'Analyze the exam question and provide the answer in this format:\nAnswer: [letter] - [answer text]\n\nReason: [one brief sentence explanation]'
+            }, {
+              role: 'user',
+              content: question
+            }]
+          })
         });
 
-        await Promise.all(batchPromises);
-        await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between batches
-      }
+        if (!response.ok) {
+          throw new Error(`AI request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        this.stats.processedQuestions++;
+        
+        const formattedQuestion = question.replace(/^\s*\d+\.\s*/, '');
+        
+        this.socket.emit('question-processed', {
+          question: formattedQuestion,
+          answer: data.choices[0].message.content,
+          pageNumbers: [],
+          rawResponse: data,
+          aiResponseData: { phase: 2 },
+          aiResponse: data.choices[0].message.content
+        });
+
+        this.emitStats();
+      };
+
+      await this.processBatch(
+        this.examQuestions,
+        processQuestion,
+        50,  // Progress starts at 50%
+        95   // Progress ends at 95%
+      );
 
       this.socket.emit('status', { message: 'Processing complete', progress: 100 });
       debug('Question processing completed');
@@ -393,7 +401,7 @@ class DocumentProcessor {
       body: JSON.stringify({
         messages: [{
           role: 'user',
-          content: `Given this question and table of contents, list up to 10 most relevant page numbers separated by commas:\n\nTable of Contents:\n${this.tableOfContents}\n\nQuestion:\n${question.text}\n\nRespond only with page numbers like: "Pages: 1,2,3,4,5"`
+          content: `Given this question and table of contents, list up to 3 most relevant page numbers separated by commas:\n\nTable of Contents:\n${this.tableOfContents}\n\nQuestion:\n${question.text}\n\nRespond only with page numbers like: "Pages: 1,2,3,4,5"`
         }]
       })
     });
