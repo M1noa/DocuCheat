@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuCheat - PDF Analysis</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+</head>
+<body class="dark-theme">
+    <div class="container">
+        <header class="header">
+            <h1>DocuCheat</h1>
+            <p class="subtitle">PDF Document Analysis System</p>
+        </header>
+
+        <main class="main">
+            <div class="stats-container" style="display: none;">
+                <h2>Processing Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Pages</span>
+                        <span class="stat-value" id="totalPages">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Exam Pages</span>
+                        <span class="stat-value" id="examPages">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">TOC Entries</span>
+                        <span class="stat-value" id="tocEntries">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Questions</span>
+                        <span class="stat-value" id="totalQuestions">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Processed</span>
+                        <span class="stat-value" id="processedQuestions">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Failed</span>
+                        <span class="stat-value" id="failedQuestions">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="upload-container" id="dropZone">
+                <div class="upload-inner">
+                    <svg class="upload-icon" viewBox="0 0 24 24">
+                        <path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+                    </svg>
+                    <h3>Drop your PDF here</h3>
+                    <p>or click to browse</p>
+                    <input type="file" id="fileInput" accept=".pdf" class="file-input" />
+                </div>
+            </div>
+
+            <div class="progress-container" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                </div>
+                <p class="status-text">Processing document...</p>
+            </div>
+
+            <div class="results-container" style="display: none;">
+                <h2>Analysis Results</h2>
+                <div class="questions-list"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
