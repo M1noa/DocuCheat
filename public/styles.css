@@ -313,12 +313,22 @@ body {
 }
 
 .question-item {
+    position: relative;
   margin-bottom: 20px;
   padding: 15px;
   border: 1px solid #dee2e6;
   border-radius: 8px;
   background-color: #130529;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.question-number {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-style: italic;
 }
 
 .error {
@@ -375,15 +385,6 @@ body {
   width: 24px;
   height: 24px;
   filter: brightness(0) invert(1);
-}
-
-.question-item {
-  margin-bottom: 20px;
-  padding: 15px;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  background-color: #130529;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .error {
@@ -645,4 +646,20 @@ body {
 
 #searchInput::placeholder {
   color: var(--text-secondary);
+}
+
+.choices {
+    margin: 10px 0;
+}
+
+.choice {
+    padding: 8px 12px;
+    margin: 4px 0;
+    border-radius: 4px;
+    background-color: var(--secondary-bg);
+}
+
+.choice.correct {
+    background-color: #4CAF50;
+    color: white;
 }

@@ -7,6 +7,7 @@ const debug = require('debug')('docucheat:processor');
 const AI_API_URL = 'https://ai.hackclub.com/chat/completions';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second delay between retries
+const BATCH_SIZE = 15; // Number of items to process in parallel
 
 class DocumentProcessor {
   constructor(socket) {

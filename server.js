@@ -6,6 +6,7 @@ const path = require('path');
 const debug = require('debug')('Docu:server');
 const cors = require('cors');
 const { processDocument } = require('./utils/documentProcessor');
+const tempFileManager = require('./utils/tempFileManager');
 
 // Initialize Express app
 const app = express();
@@ -23,7 +24,9 @@ app.use(express.static('public'));
 app.use(express.json());
 
 // Configure multer for file uploads
+const storage = multer.memoryStorage();
 const upload = multer({
+  storage: storage,
   limits: {
     fileSize: 100 * 1024 * 1024 // 100MB limit
   },
@@ -39,40 +42,52 @@ const upload = multer({
 // WebSocket connection handling
 io.on('connection', (socket) => {
   debug('Client connected');
+  let currentTempFile = null;
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     debug('Client disconnected');
+    if (currentTempFile) {
+      await tempFileManager.cleanupTempFile(currentTempFile);
+    }
   });
 
   // Handle document processing
   socket.on('process-document', async (data) => {
     try {
-      debug('Starting document processing');
+      debug('Starting document processing with file path:', data.filePath);
       await processDocument(data, socket);
+      await tempFileManager.cleanupTempFile(data.filePath);
     } catch (error) {
       debug('Error processing document:', error);
       socket.emit('error', { message: 'Error processing document' });
+      if (data.filePath) {
+        await tempFileManager.cleanupTempFile(data.filePath);
+      }
+    }
+  });
+
+  socket.on('cancel-processing', async () => {
+    if (currentTempFile) {
+      await tempFileManager.cleanupTempFile(currentTempFile);
+      currentTempFile = null;
     }
   });
 });
 
 // File upload endpoint
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  debug('File uploaded successfully');
-  res.json({ success: true });
-});
-
-// Text download endpoint
-app.get('/download-text/:filename', (req, res) => {
-  const filePath = path.join(__dirname, req.params.filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'File not found' });
+  try {
+    const tempFilePath = await tempFileManager.saveTempFile(req.file.buffer, req.file.originalname);
+    debug('File uploaded successfully to:', tempFilePath);
+    res.json({ success: true, filePath: tempFilePath });
+  } catch (error) {
+    debug('Error saving uploaded file:', error);
+    res.status(500).json({ error: 'Error saving uploaded file' });
   }
-  res.download(filePath);
 });
 
 // Error handling middleware
@@ -85,4 +100,11 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   debug(`Server running on port ${PORT}`);
+});
+
+// Cleanup on server shutdown
+process.on('SIGINT', async () => {
+  debug('Server shutting down, cleaning up temp files...');
+  await tempFileManager.cleanupAllTempFiles();
+  process.exit(0);
 });

@@ -86,13 +86,15 @@ async function handleFile(file) {
     }
 
     const data = await response.json();
-    if (data.success) {
+    if (data.success && data.filePath) {
       showProgress();
       isProcessing = true;
-      socket.emit('process-document', { filePath: file.name });
+      socket.emit('process-document', { filePath: data.filePath });
+    } else {
+      throw new Error('Invalid server response');
     }
   } catch (error) {
-    showError('Error uploading file');
+    showError('Error uploading file: ' + error.message);
     console.error('Upload error:', error);
   }
 }
@@ -356,6 +358,7 @@ function updateProgress(progress, message) {
   }
 }
 
+// Real-time search functionality
 const searchInput = document.getElementById('searchInput');
 
 searchInput.addEventListener('input', (e) => {
@@ -363,8 +366,10 @@ searchInput.addEventListener('input', (e) => {
     const questions = questionsList.getElementsByClassName('question-item');
 
     Array.from(questions).forEach(question => {
-        const text = question.textContent.toLowerCase();
-        question.style.display = text.includes(searchTerm) ? 'block' : 'none';
+        const title = question.querySelector('.question').textContent.toLowerCase();
+        const number = question.querySelector('.question-number').textContent.toLowerCase();
+        const isVisible = title.includes(searchTerm) || number.includes(searchTerm);
+        question.style.display = isVisible ? 'block' : 'none';
     });
 });
 
@@ -372,37 +377,52 @@ function addQuestionResult(question, answer, pageNumbers, rawResponse, aiRespons
     const questionItem = document.createElement('div');
     questionItem.className = 'question-item';
 
-    // Extract question number for sorting
-    const questionNumber = question.match(/^(\d+)\./)?.[1] || '0';
+    // Extract question number from the original title
+    const questionNumber = question.number || '0';
     questionItem.dataset.questionNumber = questionNumber;
 
     if (answer?.includes('Error')) {
         questionItem.innerHTML = `
-            <div class="question">${question.trim()}</div>
+            <div class="question">${question.text.trim()}</div>
             <div class="error">${answer}</div>
+            <div class="question-number">Question ${questionNumber}</div>
         `;
     } else {
         const answerParts = answer ? answer.split('\nReason:') : ['', ''];
-        const answerPart = answerParts[0] || '';
+        const answerText = answerParts[0].trim();
         const reasonPart = answerParts[1] || '';
         
+        // Extract the correct answer letter
+        const correctAnswer = answerText.match(/Answer:\s*([A-D])/i)?.[1];
+        
+        // Extract all choices from the question text
+        const choices = question.choices || [];
+        
+        const formattedChoices = choices.map(choice => {
+            const choiceLetter = choice.match(/^([A-D])/)?.[1];
+            const isCorrect = choiceLetter === correctAnswer;
+            return `<div class="choice ${isCorrect ? 'correct' : ''}">${choice.trim()}</div>`;
+        }).join('');
+
         questionItem.innerHTML = `
-            <div class="question">${question.trim().replace(/[-]{4,}/g, '---')}</div>
-            <div class="answer">${answerPart.trim()}</div>
+            <div class="question">${question.text.trim()}</div>
+            <div class="choices">${formattedChoices}</div>
+            <div class="answer">${answerText}</div>
             ${reasonPart ? `<div class="reason">${reasonPart.trim()}</div>` : ''}
+            <div class="question-number">Question ${questionNumber}</div>
         `;
     }
 
-    // Find the correct position to insert the question
-    const existingQuestions = Array.from(questionsList.children);
-    const insertIndex = existingQuestions.findIndex(item => 
-        parseInt(item.dataset.questionNumber) > parseInt(questionNumber)
+    // Sort questions by number when adding new ones
+    const questions = Array.from(questionsList.children);
+    const insertIndex = questions.findIndex(q => 
+        parseInt(q.dataset.questionNumber) > parseInt(questionNumber)
     );
 
     if (insertIndex === -1) {
         questionsList.appendChild(questionItem);
     } else {
-        questionsList.insertBefore(questionItem, existingQuestions[insertIndex]);
+        questionsList.insertBefore(questionItem, questions[insertIndex]);
     }
 }
 
